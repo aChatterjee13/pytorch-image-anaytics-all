@@ -39,8 +39,13 @@ from image_analytics.detection.trainer import DetectionTrainer
 
 logger = logging.getLogger("image_analytics")
 
-# C3-C5 for timm resnet-style feature_info (strides 8, 16, 32)
-_DEFAULT_OUT_INDICES = (2, 3, 4)
+# Per-detector pyramid levels (timm resnet-style feature_info indices):
+# one-stage detectors take C3-C5 (strides 8/16/32) and extend with P6/P7;
+# two-stage takes C2-C5 (strides 4/8/16/32) for fine RoI pooling.
+_DEFAULT_OUT_INDICES = {
+    "faster_rcnn": (1, 2, 3, 4),
+}
+_FALLBACK_OUT_INDICES = (2, 3, 4)
 
 
 def build_detection_model(config: ModelConfig) -> nn.Module:
@@ -49,9 +54,10 @@ def build_detection_model(config: ModelConfig) -> nn.Module:
     if not backbone_cfg.features_only:
         backbone_cfg = dataclasses.replace(backbone_cfg, features_only=True)
     if "out_indices" not in backbone_cfg.kwargs:
+        out_indices = _DEFAULT_OUT_INDICES.get(config.name, _FALLBACK_OUT_INDICES)
         backbone_cfg = dataclasses.replace(
             backbone_cfg,
-            kwargs={**backbone_cfg.kwargs, "out_indices": _DEFAULT_OUT_INDICES},
+            kwargs={**backbone_cfg.kwargs, "out_indices": out_indices},
         )
     backbone = build_backbone(backbone_cfg)
 

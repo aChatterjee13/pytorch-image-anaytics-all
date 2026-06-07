@@ -1,0 +1,48 @@
+# Faster R-CNN (two-stage) on synthetic shapes — offline CPU demo.
+# Run: python scripts/train.py --config configs/detection/faster_rcnn_shapes.yaml
+
+task: detection
+experiment_name: faster_rcnn_shapes
+seed: 42
+output_dir: outputs
+
+model:
+  name: faster_rcnn
+  num_classes: 3
+  backbone:
+    name: resnet18
+    pretrained: true
+    features_only: true        # out_indices default to C2-C5 for two-stage
+  neck:
+    name: fpn
+    out_channels: 64
+  kwargs:
+    rpn_anchor_sizes: [[16], [32], [64], [128], [256]]   # shapes are 16-32 px
+    box_head_dim: 256
+    rpn_post_nms_topk: [500, 250]                        # small images need few proposals
+    score_thresh: 0.1
+
+data:
+  dataset: synthetic_shapes
+  root: data
+  image_size: 96
+  batch_size: 8
+  num_workers: 0
+  normalize: imagenet
+  kwargs:
+    size: 512
+    image_size: 96
+    max_shapes: 3
+
+training:
+  epochs: 8
+  optimizer: adamw
+  lr: 5.0e-4
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  grad_clip: 1.0
+  device: auto
+  log_interval: 20
+  monitor: val/mAP50
+  monitor_mode: max

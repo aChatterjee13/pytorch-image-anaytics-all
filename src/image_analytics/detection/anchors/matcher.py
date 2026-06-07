@@ -58,3 +58,30 @@ class Matcher:
             matches[anchor_idx[keep]] = gt_idx[keep]
 
         return matches
+
+
+class BalancedPositiveNegativeSampler:
+    """Subsample matches to a fixed minibatch with a target positive fraction.
+
+    Used by RPN (256 @ 0.5) and RoI heads (512 @ 0.25) where, unlike focal
+    loss, plain BCE/CE needs explicit foreground/background balancing.
+    """
+
+    def __init__(self, batch_size_per_image: int = 256, positive_fraction: float = 0.5) -> None:
+        if not 0.0 < positive_fraction <= 1.0:
+            raise ValueError(f"positive_fraction must be in (0, 1], got {positive_fraction}")
+        self.batch_size_per_image = batch_size_per_image
+        self.positive_fraction = positive_fraction
+
+    def __call__(self, matches: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return (positive indices, negative indices) sampled from a match
+        vector (>=0 positive, BACKGROUND negative, IGNORE excluded)."""
+        positive = torch.where(matches >= 0)[0]
+        negative = torch.where(matches == Matcher.BACKGROUND)[0]
+
+        num_pos = min(len(positive), int(self.batch_size_per_image * self.positive_fraction))
+        num_neg = min(len(negative), self.batch_size_per_image - num_pos)
+
+        pos_perm = torch.randperm(len(positive), device=matches.device)[:num_pos]
+        neg_perm = torch.randperm(len(negative), device=matches.device)[:num_neg]
+        return positive[pos_perm], negative[neg_perm]
