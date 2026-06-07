@@ -1,0 +1,48 @@
+# FCOS (anchor-free) on synthetic shapes — offline CPU demo.
+# Run: python scripts/train.py --config configs/detection/fcos_shapes.yaml
+
+task: detection
+experiment_name: fcos_shapes
+seed: 42
+output_dir: outputs
+
+model:
+  name: fcos
+  num_classes: 3
+  backbone:
+    name: resnet18
+    pretrained: true
+    features_only: true
+  neck:
+    name: fpn
+    out_channels: 64
+  kwargs:
+    num_convs: 2
+    # 96px images: shapes are 16-32px, so the size bands shrink accordingly
+    regress_ranges: [[0, 32], [32, 64], [64, 128], [128, 256], [256, 100000000]]
+    score_thresh: 0.1
+
+data:
+  dataset: synthetic_shapes
+  root: data
+  image_size: 96
+  batch_size: 8
+  num_workers: 0
+  normalize: imagenet
+  kwargs:
+    size: 512
+    image_size: 96
+    max_shapes: 3
+
+training:
+  epochs: 8
+  optimizer: adamw
+  lr: 5.0e-4
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  grad_clip: 1.0
+  device: auto
+  log_interval: 20
+  monitor: val/mAP50
+  monitor_mode: max
