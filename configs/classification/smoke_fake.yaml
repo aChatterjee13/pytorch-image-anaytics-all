@@ -1,0 +1,36 @@
+# Offline smoke test: synthetic data, random-init backbone, 1 epoch on CPU.
+# Validates the full config -> data -> model -> trainer pipeline in seconds.
+# Run: python scripts/train.py --config configs/classification/smoke_fake.yaml
+
+task: classification
+experiment_name: smoke_fake
+seed: 42
+output_dir: outputs
+
+model:
+  name: classifier
+  num_classes: 10
+  backbone:
+    name: resnet18
+    pretrained: false
+
+data:
+  dataset: fake
+  root: data
+  image_size: 64
+  batch_size: 16
+  num_workers: 0
+  augment: default
+  normalize: imagenet
+  kwargs:
+    size: 64
+    image_size: [3, 64, 64]
+    num_classes: 10
+
+training:
+  epochs: 1
+  optimizer: adamw
+  lr: 1.0e-3
+  scheduler: none
+  device: cpu
+  log_interval: 1

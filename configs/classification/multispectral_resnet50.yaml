@@ -1,0 +1,46 @@
+# Template: 13-band Sentinel-2 style classification (e.g. EuroSAT-MS layout:
+# data/eurosat/{train,val}/<class>/*.tif).
+#
+# The pretrained RGB stem is adapted to 13 channels by timm (in_chans), and
+# channel attention learns per-band importance. Percentile normalization is
+# applied per image at load time, so no ImageNet statistics are used.
+#
+# Requires the geo extra: pip install -e ".[geo]"
+
+task: classification
+experiment_name: eurosat_ms_resnet50
+seed: 42
+output_dir: outputs
+
+model:
+  name: classifier
+  num_classes: 10
+  dropout: 0.2
+  backbone:
+    name: resnet50
+    pretrained: true
+    in_channels: 13
+    channel_attention: true
+
+data:
+  dataset: multispectral
+  root: data/eurosat
+  image_size: 64
+  batch_size: 64
+  num_workers: 4
+  augment: default
+  normalize: percentile    # per-image 2-98 percentile clip (robust for satellite)
+  bands: null              # all 13 bands; or e.g. [0, 1, 2, 3, 7, 9, 10]
+
+training:
+  epochs: 50
+  optimizer: adamw
+  lr: 1.0e-4
+  weight_decay: 0.05
+  scheduler: cosine
+  warmup_epochs: 2
+  amp: true
+  device: auto
+  monitor: val/accuracy
+  monitor_mode: max
+  early_stopping_patience: 10

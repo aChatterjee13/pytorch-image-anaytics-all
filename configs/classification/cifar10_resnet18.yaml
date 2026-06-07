@@ -1,0 +1,40 @@
+# Fine-tune an ImageNet-pretrained ResNet-18 on CIFAR-10.
+# Run: python scripts/train.py --config configs/classification/cifar10_resnet18.yaml
+
+task: classification
+experiment_name: cifar10_resnet18
+seed: 42
+output_dir: outputs
+
+model:
+  name: classifier
+  num_classes: 10
+  dropout: 0.1
+  backbone:
+    name: resnet18
+    pretrained: true
+    in_channels: 3
+
+data:
+  dataset: cifar10
+  root: data
+  image_size: 224          # upscale 32x32 to match ImageNet-pretrained stem
+  batch_size: 128
+  num_workers: 4
+  augment: default
+  normalize: imagenet
+
+training:
+  epochs: 10
+  optimizer: adamw
+  lr: 3.0e-4
+  weight_decay: 0.05
+  scheduler: cosine
+  warmup_epochs: 1
+  label_smoothing: 0.1
+  amp: true
+  grad_clip: 1.0
+  device: auto
+  log_interval: 50
+  monitor: val/accuracy
+  monitor_mode: max
