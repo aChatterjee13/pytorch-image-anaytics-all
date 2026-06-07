@@ -87,73 +87,238 @@ mAP on a small fixture.
 **Goal:** semantic from scratch + smp breadth; instance by extending Phase 2
 Faster R-CNN; panoptic/SOTA via HF wrappers; promptable via SAM.
 
+### Design contracts
+
+- **Semantic samples**: `(image (C,H,W) float, mask (H,W) int64)` with `255`
+  as the ignore index. Mask-aware augmentation via `tv_tensors.Mask` (nearest
+  interpolation preserved automatically by v2 transforms).
+- **Instance samples**: Phase 2 detection target dicts extended with
+  `"masks": (N,H,W) uint8`.
+- **Synthetic fixture**: shapes-with-masks reuses the Phase 2 shape rasterizer
+  — the drawn pixels *are* the mask, so detection and segmentation fixtures
+  stay consistent.
+- **`SegmentationEvaluator`**: streaming C×C confusion matrix via bincount of
+  `target*C + pred` over non-ignored pixels (same pattern/sync as Phase 1
+  evaluators). Metrics: `mIoU` (mean over classes with support), per-class
+  IoU, `dice`, `pixel_accuracy`.
+- **No new trainer for semantic seg**: the base Trainer already handles
+  `(inputs, targets) + criterion` — `CrossEntropyLoss(ignore_index=255)`
+  works as-is; the evaluator argmaxes logits in `update`. HF models fine-tune
+  through the existing loss-dict path (`_compute_loss` accepts
+  `{"loss": ...}`); a thin wrapper upsamples their 1/4-resolution logits for
+  evaluation. Instance seg reuses `DetectionTrainer`.
+
+### Architecture decisions
+
+- **U-Net (scratch)**: encoder = any registered backbone in pyramid mode
+  (5 levels); decoder block = upsample ×2 → concat skip → double conv;
+  decoder widths (256,128,64,32,16) configurable. Multi-channel capable out
+  of the box (Phase 4 synergy: 13-band U-Net for free).
+- **DeepLabv3+ (scratch)**: ASPP rates (1,6,12,18) + image-level pooling on
+  C5 at output-stride 16 (timm `output_stride=16` dilation support); decoder
+  fuses C2 via 48-channel projection.
+- **Losses**: `DiceLoss` (soft, per-class averaged), `CombinedLoss`
+  (weighted CE+Dice, the practical default), focal variant; all honor
+  ignore_index.
+- **Mask R-CNN**: mask branch on Phase 2 Faster R-CNN — RoIAlign 14×14 with
+  FPN level assignment `k = 4 + log2(sqrt(area)/224)`, 4 convs + deconv →
+  28×28 per-class masks, BCE on positive RoIs vs cropped GT masks; mask mAP
+  via pycocotools RLE (`iouType="segm"`).
+- **Panoptic quality**: `PQ = Σ IoU(TP) / (|TP| + |FP|/2 + |FN|/2)` with
+  matching at IoU > 0.5; reported as PQ/SQ/RQ.
+- **SAM (v1)** via HF `SamModel`/`SamProcessor` — inference-only promptable
+  API `predict(image, points=…, boxes=…)`; SAM2 lazy-gated
+  ("requires torch>=2.3.1").
+
 ### Build order
 
 | Step | Deliverable | Key files |
 |---|---|---|
-| 3.1 | Data + eval: image/mask dataset (index masks), `tv_tensors.Mask` transforms, synthetic shapes-with-masks; `SegmentationEvaluator` (streaming confusion → mIoU/Dice/pixel-acc, same pattern as Phase 1) | `data/datasets/segmentation.py`, `data/transforms/segmentation.py`, `core/evaluator.py` |
-| 3.2 | Seg losses: Dice, CE+Dice combo, boundary-aware focal | `segmentation/losses.py` |
-| 3.3 | **U-Net from scratch** — decoder over our timm `features_only` encoders (multi-channel capable for Phase 4 synergy) + **smp wrapper** for the family (U-Net++, MAnet, Linknet, PSPNet…, 400+ encoders) | `segmentation/semantic/unet.py`, `segmentation/semantic/smp_wrapper.py` |
-| 3.4 | **DeepLabv3+ from scratch**: ASPP (atrous pyramid) + low-level-fusion decoder | `segmentation/semantic/deeplab.py` |
-| 3.5 | SegFormer via HF `transformers` (fine-tunes through our Trainer via loss-dict outputs) | `segmentation/semantic/segformer.py` |
-| 3.6 | `SegmentationTrainer` + `segmentation/train.py` + configs + smoke test | `segmentation/train.py` |
-| 3.7 | **Mask R-CNN**: mask branch (RoIAlign 14×14 → deconv → per-class masks) on Phase 2 Faster R-CNN; mask AP in evaluator | `segmentation/instance/mask_rcnn.py` |
-| 3.8 | Mask2Former + OneFormer HF wrappers; basic PQ (panoptic quality) metric | `segmentation/instance/mask2former.py`, `segmentation/panoptic/oneformer.py` |
-| 3.9 | **SAM** promptable segmentation via HF (works on torch 2.2); **SAM2 gated** (lazy import, clear "requires torch>=2.3.1" error locally) | `foundation/sam.py` |
-| 3.10 | Notebook 03 (U-Net on synthetic masks; SegFormer fine-tune; SAM prompting demo) | `notebooks/03_segmentation.ipynb` |
+| 3.1 | Data + eval: mask dataset (class-index PNGs), `tv_tensors.Mask` transforms, synthetic shapes-with-masks; `SegmentationEvaluator` | `data/datasets/segmentation.py`, `data/transforms/segmentation.py`, `core/evaluator.py` |
+| 3.2 | Seg losses: Dice, CE+Dice combo, focal variant | `segmentation/losses.py` |
+| 3.3 | **U-Net from scratch** over timm pyramid encoders + **smp wrapper** (U-Net++, MAnet, Linknet, PSPNet…, 400+ encoders) | `segmentation/semantic/unet.py`, `segmentation/semantic/smp_wrapper.py` |
+| 3.4 | **DeepLabv3+ from scratch** (ASPP + low-level fusion) | `segmentation/semantic/deeplab.py` |
+| 3.5 | SegFormer via HF (loss-dict fine-tuning, logit-upsampling wrapper) | `segmentation/semantic/segformer.py` |
+| 3.6 | `segmentation/train.py` + configs + smoke test | `segmentation/train.py` |
+| 3.7 | **Mask R-CNN** + mask mAP | `segmentation/instance/mask_rcnn.py` |
+| 3.8 | Mask2Former + OneFormer HF wrappers; PQ metric | `segmentation/instance/mask2former.py`, `segmentation/panoptic/oneformer.py` |
+| 3.9 | **SAM** promptable wrapper; SAM2 gated | `foundation/sam.py` |
+| 3.10 | Notebook 03 (U-Net on synthetic masks; SegFormer fine-tune; SAM prompting) | `notebooks/03_segmentation.ipynb` |
 
 **New deps:** `segmentation-models-pytorch`, `transformers` (`[seg]` extra; `transformers` shared with `[foundation]`).
+
+**Acceptance:** Dice/IoU metrics vs hand-computed values; U-Net +
+DeepLabv3+ overfit a synthetic batch; e2e `run(config)` smoke on
+shapes-with-masks reaches mIoU > 0.5 in a 2-minute CPU run; mask mAP
+parity-checked against pycocotools `segm` on a fixture.
 
 ---
 
 ## Phase 4 — Satellite / Multi-Spectral
 
 Phase 1 already shipped the 16-bit pipeline, percentile normalization,
-spectral indices, multispectral dataset, and channel attention. Remaining:
+spectral indices, multispectral dataset, and channel attention.
+
+### Design contracts
+
+- **Band-group stems** (SatMAE strategy 3): `GroupedBandStem(band_groups)` —
+  each spectral group (e.g. Sentinel-2 RGB / red-edge / SWIR) gets its own
+  conv stem; outputs concatenated before the backbone body. Configured via
+  `backbone.kwargs.band_groups: [[0,1,2],[3,4,5,6],[7,8,9]]`.
+- **Foundation backbones register like any other**: `satmae_base` and
+  `prithvi_100m` land in `BACKBONES`, so any task head (classifier, U-Net,
+  FPN) consumes them through the existing config path. SatMAE = ViT with
+  grouped-band patch embed + spectral positional encodings, weights pulled
+  from HF hub with key remapping. Prithvi = temporal ViT (3D patch embed over
+  T×H×W) accepting `(B, C, T, H, W)`.
+- **Temporal samples**: `TemporalStackDataset` wraps co-registered raster
+  time series → `(T, C, H, W)` float tensors; heads choose `mean` / `max` /
+  attention pooling over per-frame features.
+- **Change detection**: Siamese shared-weight pyramid encoder on
+  `(img_t0, img_t1)`; per-level feature differences feed a U-Net-style
+  decoder (Phase 3 reuse) → binary change mask; BCE+Dice loss. Synthetic
+  fixture: a shapes scene and a mutated copy — the mutation mask is the GT.
+- **TorchGeo adapter**: converts torchgeo sample dicts (`image`/`mask`,
+  CRS-aware) to our protocols; geo-aware samplers (Random/GridGeoSampler)
+  pass through as DataLoader samplers. CRS handling stays inside torchgeo.
+
+### Build order
 
 | Step | Deliverable | Key files |
 |---|---|---|
-| 4.1 | Band-group stems (SatMAE strategy 3): separate conv stems per spectral group, fused | `backbones/multichannel.py` |
-| 4.2 | **SatMAE / Prithvi backbone wrappers**: HF-hub weight loading, grouped-band patch embeds, registered into `BACKBONES` (usable by every task incl. U-Net/FPN) | `foundation/satmae.py`, `foundation/prithvi.py` |
-| 4.3 | TorchGeo integration: dataset adapters (torchgeo → our protocol), **geo-aware samplers** (random/grid geo-sampling wrappers) | `data/datasets/torchgeo_adapter.py`, `data/samplers.py` |
-| 4.4 | Multi-temporal: temporal stacking dataset wrapper (T,C,H,W), temporal pooling heads (mean/attention), **Siamese change detection** (bi-temporal diff features → U-Net decoder → change mask) | `data/datasets/temporal.py`, `segmentation/change_detection.py` |
-| 4.5 | EuroSAT-MS configs (scratch CNN vs SatMAE linear probe), notebook 04 | `configs/classification/eurosat_*.yaml`, `notebooks/04_satellite_multispectral.ipynb` |
+| 4.1 | Band-group stems + tests | `backbones/multichannel.py` |
+| 4.2 | SatMAE + Prithvi backbone wrappers (HF hub weights) | `foundation/satmae.py`, `foundation/prithvi.py` |
+| 4.3 | TorchGeo dataset adapter + geo samplers | `data/datasets/torchgeo_adapter.py`, `data/samplers.py` |
+| 4.4 | Temporal stacking + pooling heads + Siamese change detection | `data/datasets/temporal.py`, `segmentation/change_detection.py` |
+| 4.5 | EuroSAT-MS configs (scratch 13-band CNN vs SatMAE linear probe), BigEarthNet multilabel template, notebook 04 | `configs/classification/eurosat_*.yaml`, `notebooks/04_satellite_multispectral.ipynb` |
 
 **New deps:** `torchgeo` (grows the `[geo]` extra).
-**Tests:** synthetic GeoTIFF time-series (Phase 1 fixture pattern + T dim);
-band-group stem shape tests; change-detection loss-decreases test.
+
+**Acceptance:** synthetic GeoTIFF time-series round-trip (Phase 1 fixture +
+T dim); band-group stem shape/gradient tests; change detection overfits a
+synthetic pair; foundation wrappers load and forward (weight download marked
+slow/manual); EuroSAT configs parse and build.
 
 ---
 
 ## Phase 5 — 3D (pure-PyTorch core, CUDA wrappers gated)
 
+### Design contracts
+
+- **Point-cloud samples**: `(points (N, 3+F) float, target)` — XYZ plus
+  optional features (intensity, normals). Classification targets are ints;
+  per-point segmentation targets are `(N,)` int64; detection targets are 3D
+  box dicts.
+- **3D boxes**: `(x, y, z, dx, dy, dz, yaw)` — center, dimensions, heading.
+  `box3d.py` provides axis-aligned 3D IoU (exact), BEV rotated IoU, and
+  3D IoU (BEV ∩ × z-overlap). 3D mAP reuses the Phase 2 evaluator pattern
+  with these IoU kernels.
+- **Pure-torch point ops** (`detection_3d/ops.py`): farthest-point sampling
+  (iterative argmax of running min-distance), ball query (cdist + radius
+  mask, capped at K), kNN, gather/index utilities — all batched, CPU-fine at
+  test scale; later swappable for CUDA kernels behind the same signatures.
+- **Synthetic fixtures**: (a) classification — points sampled from cube /
+  sphere / plane surfaces with jitter + random pose; (b) detection — ground
+  plane with cuboid point clusters and their GT boxes. Both deterministic
+  per index, same pattern as Phase 2 shapes.
+- **CUDA gating**: `voxel.py` / `bev.py` / `segmentation_3d.py` lazy-import
+  spconv / mmdet3d / MinkowskiEngine with actionable errors; tests
+  `skipif(not torch.cuda.is_available())`. Verified on a GPU box later —
+  code review only, locally.
+
+### Architecture decisions
+
+- **PointNet**: input + feature T-Nets (with orthogonality regularizer),
+  shared MLPs (64,64,128,1024) + max-pool; classification and per-point
+  segmentation heads.
+- **PointNet++**: SetAbstraction = FPS → ball query → mini-PointNet (SSG;
+  MSG optional); FeaturePropagation = inverse-distance interpolation + unit
+  PointNet for segmentation.
+- **DGCNN**: EdgeConv on dynamic kNN graphs recomputed per layer in feature
+  space; edge features `[x_i, x_j - x_i]`, max aggregation.
+- **PointPillars** (the one mainstream 3D detector needing no sparse conv):
+  pillar feature net (per-point decorated features → linear+BN+ReLU → max
+  per pillar) → scatter to BEV canvas → 2D conv backbone (down/up blocks,
+  concat) → SSD-style head with sin/cos yaw encoding, focal cls + smooth-L1
+  reg; axis-aligned simplification first (synthetic tests), rotated NMS after.
+
+### Build order
+
 | Step | Deliverable | Key files |
 |---|---|---|
-| 5.1 | Point-cloud data: PLY/NPZ/OFF loaders (`plyfile`, no Open3D hard dep), **synthetic primitives dataset** (sampled cubes/spheres/planes), transforms (rotate/jitter/scale/dropout), FPS + ball-query ops in pure torch | `data/datasets/pointcloud.py`, `data/transforms/pointcloud.py`, `detection_3d/ops.py` |
-| 5.2 | **PointNet** (with T-Net) + **PointNet++** (SA/FP layers): classification + part-seg heads | `detection_3d/pointnet.py` |
-| 5.3 | **DGCNN** (EdgeConv, dynamic kNN graphs) | `detection_3d/dgcnn.py` |
-| 5.4 | **PointPillars from scratch** (the one mainstream 3D detector that needs no sparse conv: pillar VFE → scatter to BEV → 2D CNN → SSD head, simplified rotated NMS) + 3D box utils/IoU | `detection_3d/pointpillars.py`, `detection_3d/box3d.py` |
-| 5.5 | CUDA-gated wrappers behind `[3d-cuda]`: SECOND/CenterPoint (spconv), BEVFormer (mmdet3d), Mask3D (MinkowskiEngine). Lazy imports, tests `skipif(not cuda)` — verified later on a GPU box | `detection_3d/voxel.py`, `detection_3d/bev.py`, `detection_3d/segmentation_3d.py` |
-| 5.6 | 3D evaluator (cls metrics reuse; BEV/3D IoU mAP for detection), notebook 05 (PointNet++ on synthetic/ModelNet sample) | `core/evaluator.py`, `notebooks/05_3d_pointcloud.ipynb` |
+| 5.1 | Point ops (FPS, ball query, kNN) + loaders (PLY/NPZ/OFF via `plyfile`) + transforms + synthetic primitives dataset | `detection_3d/ops.py`, `data/datasets/pointcloud.py`, `data/transforms/pointcloud.py` |
+| 5.2 | PointNet + PointNet++ (cls + seg heads) | `detection_3d/pointnet.py` |
+| 5.3 | DGCNN | `detection_3d/dgcnn.py` |
+| 5.4 | box3d utils + PointPillars + synthetic 3D detection fixture | `detection_3d/box3d.py`, `detection_3d/pointpillars.py` |
+| 5.5 | CUDA-gated wrappers: SECOND/CenterPoint (spconv), BEVFormer (mmdet3d), Mask3D (MinkowskiEngine) | `detection_3d/voxel.py`, `detection_3d/bev.py`, `detection_3d/segmentation_3d.py` |
+| 5.6 | 3D evaluators + notebook 05 (PointNet++ on synthetic / ModelNet sample) | `core/evaluator.py`, `notebooks/05_3d_pointcloud.ipynb` |
 
 **New deps:** `plyfile` (`[3d]`); `spconv-cu1xx`, `mmdet3d` (`[3d-cuda]`, Linux/CUDA only).
+
+**Acceptance:** FPS/ball-query unit tests vs brute-force reference; PointNet
+and PointNet++ overfit synthetic primitives to >90% accuracy on CPU;
+axis-aligned 3D IoU vs hand-computed values; PointPillars overfits a
+synthetic scene; gated wrappers import-error cleanly without CUDA.
 
 ---
 
 ## Phase 6 — Enterprise / Serving
 
+### Design contracts
+
+- **MLflowCallback**: `on_fit_start` opens a run under
+  `experiment_name` and logs the flattened config as params; `on_epoch_end`
+  logs `trainer.metrics` at `step=epoch`; `on_fit_end` logs artifacts
+  (best/last checkpoints, `config.yaml`) and optionally
+  `mlflow.pytorch.log_model(..., registered_model_name=…)` for registry
+  staging. No-op when mlflow is absent or `training.mlflow: false`; tracking
+  URI via standard `MLFLOW_TRACKING_URI`. Main-process only under DDP.
+- **ONNX export**: `torch.onnx.export` (dynamic batch axis), then a
+  mandatory **onnxruntime parity check** (CPU, |Δ| < 1e-4) before the file is
+  considered exported. Classifiers export whole; detectors export the
+  backbone+heads graph with decode/NMS kept in Python (documented Triton
+  ensemble pattern) since NMS-in-graph export is brittle across opsets.
+- **Inference CLI**: `scripts/infer.py --config … --checkpoint … --input
+  <file|dir|glob> --output preds.json` — task-dispatched (classification:
+  top-k probs; detection: boxes/scores/labels; later: masks), optional
+  `--visualize` writing annotated images.
+- **TorchServe handler**: one `BaseHandler` subclass per task; preprocess
+  rebuilds the transform pipeline from the archived `config.yaml`, so
+  serving preprocessing can never drift from training. Kept thin —
+  TorchServe has been in maintenance mode since 2024; BentoML documented as
+  the alternative path.
+- **Triton config generator**: emits `config.pbtxt` (onnxruntime backend,
+  dynamic batching, instance groups) from a model-metadata dataclass — pure
+  templating, fully unit-testable.
+- **Embeddings**: `scripts/embed.py` batches `forward_features` over a
+  dataset → parquet/npz (paths, labels, vectors); optional
+  `faiss.IndexFlatIP` build. This is the feature-store on-ramp.
+- **Drift monitoring** (`serving/monitoring.py`, pure numpy):
+  `DriftMonitor.fit(reference)` stores per-dimension histograms +
+  prediction distributions; `score(batch)` reports PSI per feature
+  (`Σ (p-q)·ln(p/q)`, alert > 0.2), KS statistics, and embedding cosine
+  shift. Evidently optional, never required.
+
+### Build order
+
 | Step | Deliverable | Key files |
 |---|---|---|
-| 6.1 | **MLflowCallback** (params/metrics/artifacts + `mlflow.pytorch.log_model` registry staging). *Pull-forward candidate: ~100 lines, could land during Phase 2 to track all subsequent experiments* | `core/callbacks.py` or `core/mlflow.py` |
-| 6.2 | **ONNX export** + onnxruntime parity tests (CPU-testable locally): classifier first, then exportable detectors; dynamic batch axes | `serving/onnx_export.py`, `scripts/export.py` |
-| 6.3 | Unified inference CLI: image/dir → JSON/CSV predictions, task-dispatched | `scripts/infer.py` |
-| 6.4 | TorchServe handlers per task + `.mar` packaging script (kept thin — TorchServe is in maintenance mode since 2024; BentoML noted as alternative) | `serving/torchserve_handler.py` |
-| 6.5 | Triton `config.pbtxt` generator (pure templating, fully testable) | `serving/triton_config.py` |
-| 6.6 | Embedding extraction: batch `forward_features` → parquet/npz; optional FAISS index | `scripts/embed.py`, `serving/embeddings.py` |
-| 6.7 | Drift monitoring: PSI/KS statistics over embeddings & prediction distributions (pure numpy core, testable; evidently optional) | `serving/monitoring.py` |
-| 6.8 | CI: GitHub Actions (CPU test matrix, lint) | `.github/workflows/ci.yml` |
+| 6.1 | **MLflowCallback** — *pull-forward candidate: ~100 lines, could land mid-Phase 3 to track all subsequent experiments* | `core/mlflow.py` |
+| 6.2 | ONNX export + parity gate + `scripts/export.py` | `serving/onnx_export.py` |
+| 6.3 | Unified inference CLI | `scripts/infer.py` |
+| 6.4 | TorchServe handlers + `.mar` packaging script | `serving/torchserve_handler.py` |
+| 6.5 | Triton `config.pbtxt` generator | `serving/triton_config.py` |
+| 6.6 | Embedding extraction + optional FAISS index | `scripts/embed.py`, `serving/embeddings.py` |
+| 6.7 | Drift monitoring (PSI/KS/cosine-shift) | `serving/monitoring.py` |
+| 6.8 | CI: GitHub Actions (CPU test matrix, ruff lint) | `.github/workflows/ci.yml` |
 
 **New deps:** `[serve]`: `onnx`, `onnxruntime`, `mlflow`; optional `faiss-cpu`, `bentoml`.
+
+**Acceptance:** ONNX parity test green for classifier + RetinaNet raw-heads
+export; infer CLI produces correct JSON on the synthetic fixtures; Triton
+configs validated against the reference schema; PSI/KS vs hand-computed
+values; MLflow run round-trip against a local file store; CI green on a
+clean clone.
 
 ---
 
