@@ -31,10 +31,13 @@ def main() -> None:
     # Tasks are imported lazily so unrelated heavy dependencies don't load.
     if config.task == "classification":
         from image_analytics.classification.train import run
+    elif config.task == "detection":
+        from image_analytics.detection.train import run
     else:
         raise SystemExit(
-            f"Unknown task {config.task!r}. Available tasks: classification "
-            f"(detection/segmentation/3d arrive in later phases — see EXPLORATION.md)"
+            f"Unknown task {config.task!r}. Available tasks: classification, "
+            f"detection (segmentation/3d arrive in later phases — see "
+            f"IMPLEMENTATION_PLAN.md)"
         )
 
     metrics = run(config)

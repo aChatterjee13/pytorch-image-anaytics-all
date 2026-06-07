@@ -1,0 +1,48 @@
+# RetinaNet on the synthetic shapes dataset — a fully offline CPU demo that
+# learns to detect rectangles/circles/triangles in a few minutes.
+# Run: python scripts/train.py --config configs/detection/retinanet_shapes.yaml
+
+task: detection
+experiment_name: retinanet_shapes
+seed: 42
+output_dir: outputs
+
+model:
+  name: retinanet
+  num_classes: 3
+  backbone:
+    name: resnet18
+    pretrained: true
+    features_only: true        # pyramid mode; out_indices default to C3-C5
+  neck:
+    name: fpn
+    out_channels: 64            # slim FPN: plenty for 3 shape classes on CPU
+  kwargs:
+    num_convs: 2
+    anchor_base_sizes: [16, 32, 64, 128, 256]   # shapes are 16-32 px
+    score_thresh: 0.1
+
+data:
+  dataset: synthetic_shapes
+  root: data                    # unused by the synthetic dataset
+  image_size: 96
+  batch_size: 8
+  num_workers: 0
+  normalize: imagenet
+  kwargs:
+    size: 512                   # train split size; val derives its own seed
+    image_size: 96
+    max_shapes: 3
+
+training:
+  epochs: 8
+  optimizer: adamw
+  lr: 5.0e-4
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  grad_clip: 1.0
+  device: auto
+  log_interval: 20
+  monitor: val/mAP50
+  monitor_mode: max

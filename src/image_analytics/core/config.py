@@ -35,11 +35,21 @@ class BackboneConfig:
 
 
 @dataclass
+class NeckConfig:
+    """Multi-scale feature fusion (FPN and friends; detection/segmentation)."""
+
+    name: str = "fpn"                    # NECKS registry key
+    out_channels: int = 256
+    kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class ModelConfig:
     name: str = "classifier"             # MODELS registry key
     num_classes: int = 1000
     dropout: float = 0.0
     backbone: BackboneConfig = field(default_factory=BackboneConfig)
+    neck: NeckConfig | None = None       # detection/segmentation models only
     kwargs: dict[str, Any] = field(default_factory=dict)
 
 

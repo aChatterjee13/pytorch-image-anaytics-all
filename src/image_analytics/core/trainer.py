@@ -89,6 +89,60 @@ def resolve_device(spec: str = "auto") -> torch.device:
 
 
 # ---------------------------------------------------------------------------
+# Optimizer / scheduler construction (shared by all task train pipelines)
+# ---------------------------------------------------------------------------
+
+
+def build_optimizer(params, config) -> torch.optim.Optimizer:
+    """Build an optimizer from a :class:`TrainingConfig`."""
+    name = config.optimizer.lower()
+    if name == "adamw":
+        return torch.optim.AdamW(params, lr=config.lr, weight_decay=config.weight_decay)
+    if name == "adam":
+        return torch.optim.Adam(params, lr=config.lr, weight_decay=config.weight_decay)
+    if name == "sgd":
+        return torch.optim.SGD(
+            params,
+            lr=config.lr,
+            momentum=config.momentum,
+            weight_decay=config.weight_decay,
+            nesterov=True,
+        )
+    raise ValueError(f"Unknown optimizer {config.optimizer!r}; expected adamw|adam|sgd")
+
+
+def build_scheduler(
+    optimizer: torch.optim.Optimizer, config
+) -> torch.optim.lr_scheduler.LRScheduler | None:
+    """Epoch-stepped LR schedule (cosine | step | none) with optional warmup."""
+    name = (config.scheduler or "none").lower()
+    if name == "none":
+        return None
+
+    if name == "cosine":
+        main = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=max(config.epochs - config.warmup_epochs, 1)
+        )
+    elif name == "step":
+        main = torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=config.step_size, gamma=config.gamma
+        )
+    else:
+        raise ValueError(f"Unknown scheduler {config.scheduler!r}; expected cosine|step|none")
+
+    if config.warmup_epochs > 0:
+        warmup = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=1.0 / max(config.warmup_epochs, 1) / 10,
+            total_iters=config.warmup_epochs,
+        )
+        return torch.optim.lr_scheduler.SequentialLR(
+            optimizer, [warmup, main], milestones=[config.warmup_epochs]
+        )
+    return main
+
+
+# ---------------------------------------------------------------------------
 # Trainer
 # ---------------------------------------------------------------------------
 
@@ -268,7 +322,9 @@ class Trainer:
                 total_loss += float(loss.detach())
                 batches += 1
             if self.evaluator is not None:
-                self.evaluator.update(outputs.float(), targets)
+                if torch.is_tensor(outputs):
+                    outputs = outputs.float()
+                self.evaluator.update(outputs, targets)
 
         metrics: dict[str, float] = {}
         if batches:

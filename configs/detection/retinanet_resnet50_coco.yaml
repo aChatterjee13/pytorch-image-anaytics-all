@@ -1,0 +1,40 @@
+# RetinaNet-ResNet50-FPN on COCO 2017 (template — expects GPU hardware).
+# Layout: data/coco/{train,val}/ images, data/coco/annotations/instances_{split}.json
+# Run: torchrun --nproc_per_node=4 scripts/train.py --config <this file>
+
+task: detection
+experiment_name: retinanet_r50_coco
+seed: 42
+output_dir: outputs
+
+model:
+  name: retinanet
+  num_classes: 80
+  backbone:
+    name: resnet50
+    pretrained: true
+    features_only: true
+  neck:
+    name: fpn
+    out_channels: 256
+
+data:
+  dataset: coco_detection
+  root: data/coco
+  image_size: 640
+  batch_size: 16
+  num_workers: 8
+  normalize: imagenet
+
+training:
+  epochs: 26
+  optimizer: adamw
+  lr: 1.0e-4
+  weight_decay: 0.05
+  scheduler: cosine
+  warmup_epochs: 1
+  amp: true
+  grad_clip: 1.0
+  device: auto
+  monitor: val/mAP
+  monitor_mode: max

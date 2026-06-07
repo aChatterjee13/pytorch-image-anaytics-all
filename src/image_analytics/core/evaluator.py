@@ -186,3 +186,152 @@ class MultiLabelEvaluator(Evaluator):
             "mAP": mean_ap,
             "subset_accuracy": subset_acc,
         }
+
+
+class DetectionEvaluator(Evaluator):
+    """COCO-style mean average precision.
+
+    ``update`` consumes per-image prediction dicts (``boxes`` XYXY,
+    ``scores``, ``labels``) and target dicts (``boxes``, ``labels``); labels
+    are 0-based foreground classes. ``compute`` reports ``mAP`` (mean over
+    IoU thresholds 0.50:0.05:0.95), ``mAP50``, and ``mAP75``, following the
+    COCO protocol: per-image greedy matching in score order, 101-point
+    interpolated AP, averaged over classes present in the ground truth.
+    """
+
+    def __init__(
+        self,
+        num_classes: int,
+        iou_thresholds: tuple[float, ...] | None = None,
+        max_detections: int = 100,
+    ) -> None:
+        self.num_classes = num_classes
+        self.iou_thresholds = tuple(
+            iou_thresholds
+            if iou_thresholds is not None
+            else [0.5 + 0.05 * i for i in range(10)]
+        )
+        self.max_detections = max_detections
+        self.reset()
+
+    def reset(self) -> None:
+        self._preds: list[dict[str, torch.Tensor]] = []
+        self._targets: list[dict[str, torch.Tensor]] = []
+
+    @torch.no_grad()
+    def update(self, outputs, targets) -> None:
+        for pred, target in zip(outputs, targets):
+            scores = pred["scores"].detach().float().cpu()
+            keep = scores.argsort(descending=True)[: self.max_detections]
+            self._preds.append(
+                {
+                    "boxes": pred["boxes"].detach().float().cpu()[keep],
+                    "scores": scores[keep],
+                    "labels": pred["labels"].detach().cpu()[keep],
+                }
+            )
+            self._targets.append(
+                {
+                    "boxes": torch.as_tensor(target["boxes"]).float().cpu(),
+                    "labels": target["labels"].detach().cpu(),
+                }
+            )
+
+    def _gather(self) -> tuple[list, list]:
+        preds, targets = self._preds, self._targets
+        if dist.is_available() and dist.is_initialized():
+            bundle: list = [None] * dist.get_world_size()
+            dist.all_gather_object(bundle, (preds, targets))
+            preds = [p for chunk, _ in bundle for p in chunk]
+            targets = [t for _, chunk in bundle for t in chunk]
+        return preds, targets
+
+    @staticmethod
+    def _interpolated_ap(scores: torch.Tensor, tps: torch.Tensor, num_gt: int) -> float:
+        """COCO 101-point interpolated AP from global score-sorted TP flags."""
+        order = scores.argsort(descending=True)
+        tp_cum = tps[order].float().cumsum(dim=0)
+        fp_cum = (~tps[order]).float().cumsum(dim=0)
+        recall = tp_cum / num_gt
+        precision = tp_cum / (tp_cum + fp_cum)
+        # Monotonic non-increasing precision envelope
+        envelope = precision.flip(0).cummax(dim=0).values.flip(0)
+        points = torch.linspace(0, 1, 101)
+        idx = torch.searchsorted(recall.contiguous(), points)
+        valid = idx < len(envelope)
+        interp = torch.zeros(101)
+        interp[valid] = envelope[idx[valid]]
+        return float(interp.mean())
+
+    def compute(self) -> dict[str, float]:
+        preds, targets = self._gather()
+        if not targets:
+            return {}
+
+        thresholds = self.iou_thresholds
+        # ap[class][threshold_index]
+        aps: dict[int, list[float]] = {}
+
+        for cls in range(self.num_classes):
+            num_gt = sum(int((t["labels"] == cls).sum()) for t in targets)
+            if num_gt == 0:
+                continue
+
+            # Per-image IoU matrices computed once, matched per threshold
+            per_image: list[tuple[torch.Tensor, torch.Tensor]] = []  # (scores, ious)
+            for pred, target in zip(preds, targets):
+                pmask = pred["labels"] == cls
+                gmask = target["labels"] == cls
+                pboxes, pscores = pred["boxes"][pmask], pred["scores"][pmask]
+                gboxes = target["boxes"][gmask]
+                if len(pboxes) == 0:
+                    continue
+                order = pscores.argsort(descending=True)
+                pboxes, pscores = pboxes[order], pscores[order]
+                if len(gboxes):
+                    import torchvision.ops as tvops
+
+                    ious = tvops.box_iou(pboxes, gboxes)
+                else:
+                    ious = torch.zeros(len(pboxes), 0)
+                per_image.append((pscores, ious))
+
+            cls_aps = []
+            for thr in thresholds:
+                all_scores, all_tps = [], []
+                for pscores, ious in per_image:
+                    matched = torch.zeros(ious.shape[1], dtype=torch.bool)
+                    tps = torch.zeros(len(pscores), dtype=torch.bool)
+                    for i in range(len(pscores)):
+                        if ious.shape[1] == 0:
+                            break
+                        candidate = ious[i].clone()
+                        candidate[matched] = -1.0
+                        best = int(candidate.argmax())
+                        if candidate[best] >= thr:
+                            matched[best] = True
+                            tps[i] = True
+                    all_scores.append(pscores)
+                    all_tps.append(tps)
+                if all_scores:
+                    cls_aps.append(
+                        self._interpolated_ap(
+                            torch.cat(all_scores), torch.cat(all_tps), num_gt
+                        )
+                    )
+                else:
+                    cls_aps.append(0.0)
+            aps[cls] = cls_aps
+
+        if not aps:
+            return {"mAP": 0.0, "mAP50": 0.0, "mAP75": 0.0}
+
+        per_class = torch.tensor(list(aps.values()))  # (C_present, T)
+        idx50 = thresholds.index(0.5) if 0.5 in thresholds else 0
+        metrics = {
+            "mAP": float(per_class.mean()),
+            "mAP50": float(per_class[:, idx50].mean()),
+        }
+        if 0.75 in thresholds:
+            metrics["mAP75"] = float(per_class[:, thresholds.index(0.75)].mean())
+        return metrics
