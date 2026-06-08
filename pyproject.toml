@@ -18,7 +18,11 @@ dependencies = [
 
 [project.optional-dependencies]
 detection = ["ultralytics>=8.3"]
-geo = ["rasterio>=1.3"]
+seg = ["segmentation-models-pytorch>=0.4", "transformers>=4.45"]  # U-Net++/smp, SegFormer/Mask2Former/OneFormer/SAM
+geo = ["rasterio>=1.3", "torchgeo>=0.6"]
+3d = ["plyfile>=1.0"]                                             # .ply point-cloud I/O
+3d-cuda = ["spconv-cu120>=2.3", "mmdet3d>=1.4"]                   # SECOND/CenterPoint/BEVFormer — Linux/CUDA only
+serve = ["onnx>=1.16", "onnxruntime>=1.18", "mlflow>=2.15"]       # ONNX export + parity gate, experiment tracking
 notebooks = ["matplotlib>=3.8", "jupyter"]
 dev = ["pytest>=8.0"]
 
@@ -32,6 +36,9 @@ packages = ["src/image_analytics"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "slow: heavy CPU tests (overfit/training loops) — deselect with -m 'not slow'",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::UserWarning",

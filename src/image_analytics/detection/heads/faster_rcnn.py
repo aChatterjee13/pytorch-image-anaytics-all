@@ -186,15 +186,17 @@ class FasterRCNN(nn.Module):
 
     # -- training ------------------------------------------------------------
 
-    def _forward_train(
-        self,
-        roi_features: list[torch.Tensor],
-        proposals: list[torch.Tensor],
-        targets: list[dict],
-        image_size: tuple[int, int],
-        rpn_losses: dict[str, torch.Tensor],
-    ) -> dict[str, torch.Tensor]:
-        sampled_proposals, labels, reg_targets = [], [], []
+    def _select_training_samples(
+        self, proposals: list[torch.Tensor], targets: list[dict]
+    ) -> tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]]:
+        """Match proposals to GT and subsample per image.
+
+        Returns ``(sampled_proposals, labels, reg_targets, matched_gt)`` where
+        ``labels`` are internal (0 = background, foreground = dataset label + 1)
+        and ``matched_gt`` is the GT index per sample (>= 0 for positives, -1
+        otherwise) — the mask branch (Mask R-CNN) reuses it to fetch GT masks.
+        """
+        sampled_proposals, labels, reg_targets, matched_gt = [], [], [], []
         for b, target in enumerate(targets):
             gt_boxes = torch.as_tensor(target["boxes"], dtype=torch.float32)
             gt_labels = target["labels"]
@@ -223,10 +225,23 @@ class FasterRCNN(nn.Module):
                     gt_boxes[matches[pos_idx]], props[pos_idx]
                 )
 
+            sample_gt = torch.full((len(keep),), -1, dtype=torch.int64, device=props.device)
+            sample_gt[: len(pos_idx)] = matches[pos_idx]
+
             sampled_proposals.append(props[keep])
             labels.append(sample_labels)
             reg_targets.append(sample_reg)
+            matched_gt.append(sample_gt)
+        return sampled_proposals, labels, reg_targets, matched_gt
 
+    def _box_head_losses(
+        self,
+        roi_features: list[torch.Tensor],
+        sampled_proposals: list[torch.Tensor],
+        labels: list[torch.Tensor],
+        reg_targets: list[torch.Tensor],
+        image_size: tuple[int, int],
+    ) -> dict[str, torch.Tensor]:
         pooled = self._pool_rois(roi_features, sampled_proposals, image_size)
         box_features = self.box_head(pooled)
         cls_logits = self.cls_predictor(box_features)               # (K, C+1)
@@ -247,11 +262,23 @@ class FasterRCNN(nn.Module):
         else:
             loss_reg = reg_deltas.sum() * 0.0
 
-        losses = {
-            **rpn_losses,
-            "loss_cls": loss_cls,
-            "loss_reg": loss_reg,
-        }
+        return {"loss_cls": loss_cls, "loss_reg": loss_reg}
+
+    def _forward_train(
+        self,
+        roi_features: list[torch.Tensor],
+        proposals: list[torch.Tensor],
+        targets: list[dict],
+        image_size: tuple[int, int],
+        rpn_losses: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        sampled_proposals, labels, reg_targets, _matched_gt = (
+            self._select_training_samples(proposals, targets)
+        )
+        box_losses = self._box_head_losses(
+            roi_features, sampled_proposals, labels, reg_targets, image_size
+        )
+        losses = {**rpn_losses, **box_losses}
         losses["loss"] = sum(losses.values())
         return losses
 

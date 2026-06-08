@@ -1,0 +1,38 @@
+# Offline smoke test: synthetic masks, random-init backbone, 1 epoch on CPU.
+# Validates the full config -> data -> model -> trainer pipeline in seconds.
+# Run: python scripts/train.py --config configs/segmentation/smoke.yaml
+
+task: segmentation
+experiment_name: seg_smoke
+seed: 42
+output_dir: outputs
+
+model:
+  name: unet
+  num_classes: 4
+  backbone:
+    name: resnet18
+    pretrained: false
+
+data:
+  dataset: synthetic_shapes_seg
+  root: data
+  image_size: 64
+  batch_size: 8
+  num_workers: 0
+  normalize: imagenet
+  kwargs:
+    size: 24
+    image_size: 64
+    max_shapes: 3
+
+training:
+  epochs: 1
+  optimizer: adamw
+  lr: 1.0e-3
+  scheduler: none
+  loss: ce_dice
+  device: cpu
+  log_interval: 0
+  monitor: val/mIoU
+  monitor_mode: max

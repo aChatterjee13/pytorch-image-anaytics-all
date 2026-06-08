@@ -27,6 +27,7 @@ from image_analytics.core.callbacks import (
 )
 from image_analytics.core.config import ExperimentConfig, save_config
 from image_analytics.core.evaluator import ClassificationEvaluator, MultiLabelEvaluator
+from image_analytics.core.mlflow import maybe_mlflow_callback
 from image_analytics.core.trainer import (
     Trainer,
     build_optimizer,
@@ -152,6 +153,7 @@ def run(config: ExperimentConfig) -> dict[str, float]:
                 patience=tc.early_stopping_patience,
             )
         )
+    callbacks += maybe_mlflow_callback(config)
 
     trainer = Trainer(
         model,

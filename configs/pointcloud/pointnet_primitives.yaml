@@ -1,0 +1,36 @@
+# PointNet classification on synthetic primitive point clouds (offline CPU).
+# Run: python scripts/train.py --config configs/pointcloud/pointnet_primitives.yaml
+
+task: pointcloud
+experiment_name: pointnet_primitives
+seed: 42
+output_dir: outputs
+
+model:
+  name: pointnet
+  num_classes: 4               # cube / sphere / plane / cylinder
+  kwargs:
+    task: classification
+    dropout: 0.3
+
+data:
+  dataset: synthetic_pointcloud
+  root: data
+  batch_size: 16
+  num_workers: 0
+  augment: default
+  kwargs:
+    size: 512
+    num_points: 1024
+
+training:
+  epochs: 20
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  device: auto
+  log_interval: 20
+  monitor: val/accuracy
+  monitor_mode: max

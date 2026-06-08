@@ -1,0 +1,44 @@
+# U-Net on the synthetic shapes-with-masks dataset — an offline CPU demo that
+# segments rectangles/circles/triangles in a few minutes.
+# Run: python scripts/train.py --config configs/segmentation/unet_shapes.yaml
+
+task: segmentation
+experiment_name: unet_shapes
+seed: 42
+output_dir: outputs
+
+model:
+  name: unet
+  num_classes: 4               # background + rectangle/circle/triangle
+  backbone:
+    name: resnet18
+    pretrained: true
+    features_only: true        # pyramid encoder; out_indices default to all 5 levels
+  kwargs:
+    decoder_channels: [128, 64, 32, 16, 8]   # slim decoder for 4 classes on CPU
+
+data:
+  dataset: synthetic_shapes_seg
+  root: data                   # unused by the synthetic dataset
+  image_size: 96
+  batch_size: 8
+  num_workers: 0
+  normalize: imagenet
+  kwargs:
+    size: 512
+    image_size: 96
+    max_shapes: 3
+
+training:
+  epochs: 8
+  optimizer: adamw
+  lr: 5.0e-4
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  loss: ce_dice                # CrossEntropy + Dice (the practical default)
+  grad_clip: 1.0
+  device: auto
+  log_interval: 20
+  monitor: val/mIoU
+  monitor_mode: max

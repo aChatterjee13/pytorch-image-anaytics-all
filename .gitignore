@@ -9,7 +9,8 @@ build/
 
 # Project artifacts
 outputs/
-data/
+# root-anchored so it doesn't shadow the src/image_analytics/data/ package
+/data/
 *.pt
 *.pth
 *.onnx

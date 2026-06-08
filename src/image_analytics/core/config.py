@@ -66,6 +66,7 @@ class DataConfig:
     std: list[float] | None = None
     bands: list[int] | None = None       # band selection for multispectral datasets (0-based)
     balanced_sampling: bool = False      # inverse-frequency weighted sampling
+    letterbox: bool = False              # aspect-preserving resize+pad (detection)
     kwargs: dict[str, Any] = field(default_factory=dict)  # dataset-specific passthrough
 
 
@@ -81,6 +82,8 @@ class TrainingConfig:
     step_size: int = 10                  # step scheduler only
     gamma: float = 0.1                   # step scheduler only
     label_smoothing: float = 0.0
+    loss: str | None = None              # LOSSES registry key; None = task default
+    loss_kwargs: dict[str, Any] = field(default_factory=dict)
     amp: bool = False                    # mixed precision (CUDA only)
     grad_clip: float | None = None
     device: str = "auto"                 # auto | cuda | mps | cpu | cuda:N
@@ -89,6 +92,8 @@ class TrainingConfig:
     monitor_mode: str = "max"            # max | min
     early_stopping_patience: int | None = None
     resume: str | None = None            # checkpoint path to resume from
+    mlflow: bool = False                 # log to MLflow (URI via MLFLOW_TRACKING_URI)
+    mlflow_registered_model: str | None = None  # also register the final model
 
 
 @dataclass

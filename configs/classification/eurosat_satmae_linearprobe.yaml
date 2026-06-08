@@ -1,0 +1,41 @@
+# EuroSAT-MS linear probe on a SatMAE foundation backbone (band-group stems +
+# spectral pos-encodings). Template — needs [geo] (torchgeo) + [seg]
+# (huggingface_hub for weights). Compare accuracy vs. eurosat_ms_scratch.yaml.
+# Run: python scripts/train.py --config configs/classification/eurosat_satmae_linearprobe.yaml
+
+task: classification
+experiment_name: eurosat_satmae_linearprobe
+seed: 42
+output_dir: outputs
+
+model:
+  name: classifier
+  num_classes: 10
+  backbone:
+    name: satmae_base
+    pretrained: true           # downloads SatMAE weights from the HF hub
+    kwargs:
+      img_size: 64
+      patch_size: 16
+      band_groups: [[1, 2, 3], [4, 5, 6, 7], [8, 11, 12]]   # S2 RGB / red-edge / SWIR
+
+data:
+  dataset: torchgeo
+  root: data/eurosat
+  image_size: 64
+  batch_size: 64
+  num_workers: 4
+  normalize: none
+  kwargs:
+    dataset: EuroSAT
+    download: true
+
+training:
+  epochs: 30
+  optimizer: adamw
+  lr: 1.0e-3                    # higher LR — linear probe on frozen features
+  weight_decay: 0.0
+  scheduler: cosine
+  device: auto
+  monitor: val/accuracy
+  monitor_mode: max

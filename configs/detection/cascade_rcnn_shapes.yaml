@@ -1,0 +1,48 @@
+# Cascade R-CNN on the synthetic shapes dataset (offline CPU demo).
+# Three box heads at IoU 0.5 / 0.6 / 0.7 on top of the Phase 2 Faster R-CNN.
+# Run: python scripts/train.py --config configs/detection/cascade_rcnn_shapes.yaml
+
+task: detection
+experiment_name: cascade_rcnn_shapes
+seed: 42
+output_dir: outputs
+
+model:
+  name: cascade_rcnn
+  num_classes: 3
+  backbone:
+    name: resnet18
+    pretrained: true
+    features_only: true        # C2-C5 set by the pipeline
+  neck:
+    name: fpn
+    out_channels: 64
+  kwargs:
+    box_head_dim: 256
+    rpn_anchor_sizes: [[16], [32], [64], [128], [256]]
+    rpn_post_nms_topk: [500, 200]
+
+data:
+  dataset: synthetic_shapes
+  root: data
+  image_size: 96
+  batch_size: 4
+  num_workers: 0
+  normalize: imagenet
+  kwargs:
+    size: 256
+    image_size: 96
+    max_shapes: 3
+
+training:
+  epochs: 10
+  optimizer: adamw
+  lr: 5.0e-4
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  grad_clip: 1.0
+  device: auto
+  log_interval: 20
+  monitor: val/mAP50
+  monitor_mode: max

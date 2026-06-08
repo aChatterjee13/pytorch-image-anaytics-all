@@ -1,0 +1,46 @@
+# Siamese U-Net change detection on the synthetic bi-temporal shapes fixture
+# (offline CPU demo). The two dates are channel-concatenated (6ch); the model
+# splits them, diffs per-level features, and decodes a change mask.
+# Run: python scripts/train.py --config configs/segmentation/change_detection_shapes.yaml
+
+task: segmentation
+experiment_name: change_detection_shapes
+seed: 42
+output_dir: outputs
+
+model:
+  name: siamese_unet
+  num_classes: 2               # no-change / change
+  backbone:
+    name: resnet18
+    pretrained: true
+    in_channels: 3             # per-date channels; input is 2x this
+    features_only: true
+  kwargs:
+    decoder_channels: [128, 64, 32, 16, 8]
+
+data:
+  dataset: synthetic_change
+  root: data
+  image_size: 96
+  batch_size: 8
+  num_workers: 0
+  normalize: none              # synthetic frames are already in [0, 1]
+  kwargs:
+    size: 512
+    image_size: 96
+    max_shapes: 3
+
+training:
+  epochs: 10
+  optimizer: adamw
+  lr: 5.0e-4
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  loss: ce_dice
+  grad_clip: 1.0
+  device: auto
+  log_interval: 20
+  monitor: val/mIoU
+  monitor_mode: max

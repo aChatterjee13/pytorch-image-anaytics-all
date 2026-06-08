@@ -1,0 +1,42 @@
+# PointPillars 3D detection on the synthetic cuboid-scene fixture (offline CPU).
+# Run: python scripts/train.py --config configs/pointcloud/pointpillars_synthetic.yaml
+
+task: pointcloud
+experiment_name: pointpillars_synthetic
+seed: 42
+output_dir: outputs
+
+model:
+  name: pointpillars
+  num_classes: 1               # single foreground class ("object")
+  kwargs:
+    point_cloud_range: [-5.0, -5.0, -1.0, 5.0, 5.0, 3.0]
+    voxel_size: [0.25, 0.25]
+    pillar_channels: 64
+    backbone_channels: 128
+    score_thresh: 0.2
+    nms_iou: 0.1
+
+data:
+  dataset: synthetic_pointcloud_det
+  root: data
+  batch_size: 8
+  num_workers: 0
+  kwargs:
+    size: 256
+    num_points: 2048
+    max_objects: 3
+    area: 10.0
+
+training:
+  epochs: 20
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  grad_clip: 1.0
+  device: auto
+  log_interval: 20
+  monitor: val/mAP_3d
+  monitor_mode: max

@@ -1,0 +1,45 @@
+# DeepLabv3+ on the synthetic shapes-with-masks dataset (offline CPU demo).
+# Run: python scripts/train.py --config configs/segmentation/deeplabv3plus_shapes.yaml
+
+task: segmentation
+experiment_name: deeplabv3plus_shapes
+seed: 42
+output_dir: outputs
+
+model:
+  name: deeplabv3plus
+  num_classes: 4
+  backbone:
+    name: resnet18
+    pretrained: true
+    features_only: true        # out_indices (C2, C5) + output_stride 16 set by the pipeline
+  kwargs:
+    aspp_channels: 128
+    low_level_channels: 32
+    decoder_channels: 128
+
+data:
+  dataset: synthetic_shapes_seg
+  root: data
+  image_size: 96
+  batch_size: 8
+  num_workers: 0
+  normalize: imagenet
+  kwargs:
+    size: 512
+    image_size: 96
+    max_shapes: 3
+
+training:
+  epochs: 10
+  optimizer: adamw
+  lr: 5.0e-4
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  loss: ce_dice
+  grad_clip: 1.0
+  device: auto
+  log_interval: 20
+  monitor: val/mIoU
+  monitor_mode: max

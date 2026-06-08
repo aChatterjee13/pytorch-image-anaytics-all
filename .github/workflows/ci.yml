@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install CPU PyTorch
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install package + extras
+        # seg = smp/transformers, serve = onnx/onnxruntime/mlflow; rasterio for
+        # multispectral. torchgeo / ultralytics tests skip when those are absent.
+        run: pip install -e ".[dev,seg,serve]" ruff rasterio
+
+      - name: Lint (pyflakes / syntax errors only)
+        run: ruff check --select=E9,F63,F7,F82 src scripts tests
+
+      - name: Run tests (excluding slow overfit/training)
+        run: pytest -m "not slow"

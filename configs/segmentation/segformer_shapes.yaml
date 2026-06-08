@@ -1,0 +1,43 @@
+# SegFormer (HuggingFace) fine-tuned on the synthetic shapes-with-masks data.
+# Needs the [seg] extra (transformers). With pretrained: true the MiT-b0 encoder
+# weights download on first run; set pretrained: false for a fully offline run.
+# Run: python scripts/train.py --config configs/segmentation/segformer_shapes.yaml
+
+task: segmentation
+experiment_name: segformer_shapes
+seed: 42
+output_dir: outputs
+
+model:
+  name: segformer
+  num_classes: 4
+  backbone:
+    name: mit_b0                # informational; SegFormer owns its encoder
+    pretrained: true
+  kwargs:
+    model_name: nvidia/mit-b0
+
+data:
+  dataset: synthetic_shapes_seg
+  root: data
+  image_size: 128              # SegFormer patch-embeds at /4; keep size divisible
+  batch_size: 8
+  num_workers: 0
+  normalize: imagenet
+  kwargs:
+    size: 256
+    image_size: 128
+    max_shapes: 3
+
+training:
+  epochs: 10
+  optimizer: adamw
+  lr: 6.0e-5                    # transformer fine-tuning LR
+  weight_decay: 0.01
+  scheduler: cosine
+  warmup_epochs: 1
+  loss: ce_dice
+  device: auto
+  log_interval: 20
+  monitor: val/mIoU
+  monitor_mode: max

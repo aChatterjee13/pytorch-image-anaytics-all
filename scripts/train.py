@@ -33,11 +33,14 @@ def main() -> None:
         from image_analytics.classification.train import run
     elif config.task == "detection":
         from image_analytics.detection.train import run
+    elif config.task == "segmentation":
+        from image_analytics.segmentation.train import run
+    elif config.task == "pointcloud":
+        from image_analytics.detection_3d.train import run
     else:
         raise SystemExit(
             f"Unknown task {config.task!r}. Available tasks: classification, "
-            f"detection (segmentation/3d arrive in later phases — see "
-            f"IMPLEMENTATION_PLAN.md)"
+            f"detection, segmentation, pointcloud — see IMPLEMENTATION_PLAN.md"
         )
 
     metrics = run(config)

@@ -76,6 +76,71 @@ class ChannelAttentionInput(nn.Module):
         return x * weights.view(b, c, 1, 1)
 
 
+class GroupedBandStem(nn.Module):
+    """Band-group stems (SatMAE strategy 3): a separate conv stem per spectral
+    group, fused to ``out_channels``.
+
+    Each group of bands (e.g. Sentinel-2 RGB / red-edge / SWIR) is processed by
+    its own stem before fusion, letting the network learn group-specific low
+    level filters. With ``out_channels=3`` the fused output feeds a standard
+    pretrained RGB backbone unchanged.
+
+    Args:
+        band_groups: list of 0-based band-index lists, e.g.
+            ``[[0,1,2],[3,4,5,6],[7,8,9]]``.
+    """
+
+    def __init__(
+        self, band_groups: list, out_channels: int = 3, stem_channels: int = 16
+    ) -> None:
+        super().__init__()
+        self.band_groups = [list(g) for g in band_groups]
+        self.stems = nn.ModuleList(
+            nn.Sequential(
+                nn.Conv2d(len(g), stem_channels, 3, padding=1, bias=False),
+                nn.BatchNorm2d(stem_channels),
+                nn.ReLU(inplace=True),
+            )
+            for g in self.band_groups
+        )
+        self.fuse = nn.Conv2d(len(self.band_groups) * stem_channels, out_channels, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        outs = [stem(x[:, g]) for stem, g in zip(self.stems, self.band_groups)]
+        return self.fuse(torch.cat(outs, dim=1))
+
+
+class GroupedStemBackbone(nn.Module):
+    """Band-group stems feeding a backbone (built with ``in_channels=out_channels``).
+    Forwards the backbone's feature interface so any head consumes it."""
+
+    def __init__(
+        self,
+        backbone: nn.Module,
+        band_groups: list,
+        out_channels: int = 3,
+        stem_channels: int = 16,
+    ) -> None:
+        super().__init__()
+        self.stem = GroupedBandStem(band_groups, out_channels, stem_channels)
+        self.backbone = backbone
+
+    @property
+    def feature_dim(self) -> int:
+        return self.backbone.feature_dim
+
+    @property
+    def feature_channels(self) -> list[int]:
+        return self.backbone.feature_channels
+
+    @property
+    def features_only(self) -> bool:
+        return getattr(self.backbone, "features_only", False)
+
+    def forward(self, x: torch.Tensor):
+        return self.backbone(self.stem(x))
+
+
 class MultiChannelBackbone(nn.Module):
     """Compose channel-input attention with any backbone; forwards the
     backbone's feature interface (``feature_dim`` / ``feature_channels``)."""

@@ -19,12 +19,13 @@ import torch
 import torch.nn as nn
 import torchvision.ops as tvops
 
-from image_analytics.core.registry import MODELS
+from image_analytics.core.registry import MODELS, NECKS
 from image_analytics.detection.anchors import AnchorGenerator, Matcher
 from image_analytics.detection.anchors.generator import retinanet_sizes
 from image_analytics.detection.box_coder import BoxCoder
 from image_analytics.detection.losses import sigmoid_focal_loss, smooth_l1_loss
-from image_analytics.detection.necks.fpn import FPN
+from image_analytics.detection.necks import fpn as _fpn  # noqa: F401  (register fpn)
+from image_analytics.detection.necks import pafpn as _pafpn  # noqa: F401  (register pafpn)
 
 
 def _conv_tower(channels: int, num_convs: int) -> nn.Sequential:
@@ -42,6 +43,7 @@ class RetinaNet(nn.Module):
         backbone: nn.Module,
         num_classes: int,
         fpn_channels: int = 256,
+        neck: str = "fpn",                 # "fpn" | "pafpn" (NECKS registry key)
         num_convs: int = 4,
         anchor_base_sizes: tuple[int, ...] = (32, 64, 128, 256, 512),
         aspect_ratios: tuple[float, ...] = (0.5, 1.0, 2.0),
@@ -65,9 +67,12 @@ class RetinaNet(nn.Module):
         self.backbone = backbone
         self.num_classes = num_classes
 
-        # FPN over C3-C5 plus P6/P7 -> 5 pyramid levels
-        self.fpn = FPN(
-            backbone.feature_channels, fpn_channels, extra_levels="p6p7"
+        # FPN (or PAFPN) over C3-C5 plus P6/P7 -> 5 pyramid levels
+        self.fpn = NECKS.build(
+            neck,
+            in_channels_list=backbone.feature_channels,
+            out_channels=fpn_channels,
+            extra_levels="p6p7",
         )
         num_levels = self.fpn.num_levels
         sizes = retinanet_sizes(tuple(anchor_base_sizes))

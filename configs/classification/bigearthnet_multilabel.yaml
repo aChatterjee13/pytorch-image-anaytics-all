@@ -1,0 +1,39 @@
+# BigEarthNet multi-label land-cover classification (Sentinel-2, 12-band).
+# Template — needs the [geo] extra (torchgeo); BigEarthNet is a large download.
+# Run: python scripts/train.py --config configs/classification/bigearthnet_multilabel.yaml
+
+task: classification
+experiment_name: bigearthnet_multilabel
+seed: 42
+output_dir: outputs
+
+model:
+  name: multilabel_classifier   # BCEWithLogitsLoss + multi-label metrics (mAP, F1)
+  num_classes: 19               # BigEarthNet-19 label set
+  backbone:
+    name: resnet50
+    pretrained: false
+    in_channels: 12
+
+data:
+  dataset: torchgeo
+  root: data/bigearthnet
+  image_size: 120
+  batch_size: 64
+  num_workers: 8
+  normalize: none
+  kwargs:
+    dataset: BigEarthNet
+    download: true
+    num_classes: 19
+
+training:
+  epochs: 40
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 0.01
+  scheduler: cosine
+  warmup_epochs: 2
+  device: auto
+  monitor: val/mAP
+  monitor_mode: max

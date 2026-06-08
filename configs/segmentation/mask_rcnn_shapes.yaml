@@ -1,0 +1,50 @@
+# Mask R-CNN on the synthetic shapes-with-instance-masks dataset (offline CPU).
+# Instance segmentation reuses the detection stack (collate, DetectionTrainer);
+# evaluation reports mask (segm) mAP.
+# Run: python scripts/train.py --config configs/segmentation/mask_rcnn_shapes.yaml
+
+task: segmentation
+experiment_name: mask_rcnn_shapes
+seed: 42
+output_dir: outputs
+
+model:
+  name: mask_rcnn
+  num_classes: 3               # rectangle/circle/triangle (0-based foreground)
+  backbone:
+    name: resnet18
+    pretrained: true
+    features_only: true        # C2-C5 set by the pipeline
+  neck:
+    name: fpn
+    out_channels: 64
+  kwargs:
+    box_head_dim: 256
+    mask_head_dim: 64
+    rpn_anchor_sizes: [[16], [32], [64], [128], [256]]
+    rpn_post_nms_topk: [500, 200]
+
+data:
+  dataset: synthetic_shapes_instance
+  root: data
+  image_size: 96
+  batch_size: 4
+  num_workers: 0
+  normalize: imagenet
+  kwargs:
+    size: 256
+    image_size: 96
+    max_shapes: 3
+
+training:
+  epochs: 10
+  optimizer: adamw
+  lr: 5.0e-4
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  grad_clip: 1.0
+  device: auto
+  log_interval: 20
+  monitor: val/mask_mAP50
+  monitor_mode: max

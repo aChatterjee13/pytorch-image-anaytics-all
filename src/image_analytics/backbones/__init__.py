@@ -7,9 +7,15 @@ from image_analytics.backbones import (  # noqa: F401  (registration side effect
     swin,
     vit,
 )
+from image_analytics.foundation import (  # noqa: F401  (register satellite backbones)
+    prithvi,
+    satmae,
+)
 from image_analytics.backbones.base import TimmBackbone
 from image_analytics.backbones.multichannel import (
     ChannelAttentionInput,
+    GroupedBandStem,
+    GroupedStemBackbone,
     MultiChannelBackbone,
     adapt_first_conv,
 )
@@ -19,6 +25,8 @@ __all__ = [
     "BACKBONES",
     "TimmBackbone",
     "ChannelAttentionInput",
+    "GroupedBandStem",
+    "GroupedStemBackbone",
     "MultiChannelBackbone",
     "adapt_first_conv",
     "build_backbone",

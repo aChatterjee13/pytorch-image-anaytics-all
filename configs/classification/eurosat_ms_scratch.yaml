@@ -1,0 +1,38 @@
+# EuroSAT-MS (13-band Sentinel-2) land-cover classification, CNN from scratch.
+# Template — needs the [geo] extra (torchgeo) and downloads EuroSAT on first run.
+# Run: python scripts/train.py --config configs/classification/eurosat_ms_scratch.yaml
+
+task: classification
+experiment_name: eurosat_ms_scratch
+seed: 42
+output_dir: outputs
+
+model:
+  name: classifier
+  num_classes: 10
+  backbone:
+    name: resnet50
+    pretrained: false          # 13-band stem can't reuse RGB weights here
+    in_channels: 13
+
+data:
+  dataset: torchgeo
+  root: data/eurosat
+  image_size: 64
+  batch_size: 32
+  num_workers: 4
+  normalize: none              # torchgeo returns raw reflectance; scale in-model
+  kwargs:
+    dataset: EuroSAT
+    download: true
+
+training:
+  epochs: 50
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 0.05
+  scheduler: cosine
+  warmup_epochs: 3
+  device: auto
+  monitor: val/accuracy
+  monitor_mode: max

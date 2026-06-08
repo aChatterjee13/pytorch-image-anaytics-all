@@ -1,0 +1,37 @@
+# PointNet++ part segmentation on synthetic point clouds (offline CPU).
+# Run: python scripts/train.py --config configs/pointcloud/pointnet2_seg.yaml
+
+task: pointcloud
+experiment_name: pointnet2_seg
+seed: 42
+output_dir: outputs
+
+model:
+  name: pointnet2
+  num_classes: 4               # 4 angular part sectors
+  kwargs:
+    task: segmentation
+    dropout: 0.4
+
+data:
+  dataset: synthetic_pointcloud
+  root: data
+  batch_size: 8
+  num_workers: 0
+  augment: none                # keep parts aligned with their sector labels
+  kwargs:
+    size: 256
+    num_points: 1024
+    task: segmentation
+
+training:
+  epochs: 20
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 1
+  device: auto
+  log_interval: 20
+  monitor: val/mIoU
+  monitor_mode: max

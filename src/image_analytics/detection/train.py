@@ -21,6 +21,7 @@ from image_analytics.core.callbacks import (
 )
 from image_analytics.core.config import ExperimentConfig, ModelConfig, save_config
 from image_analytics.core.evaluator import DetectionEvaluator
+from image_analytics.core.mlflow import maybe_mlflow_callback
 from image_analytics.core.registry import MODELS
 from image_analytics.core.trainer import (
     build_optimizer,
@@ -35,6 +36,7 @@ from image_analytics.data.collate import detection_collate
 from image_analytics.data.datasets.registry import build_dataset
 from image_analytics.data.transforms.detection import build_detection_transforms
 from image_analytics.detection import heads  # noqa: F401  (register detectors)
+from image_analytics.detection import hf_detr  # noqa: F401  (register deformable_detr/rt_detr)
 from image_analytics.detection.trainer import DetectionTrainer
 
 logger = logging.getLogger("image_analytics")
@@ -45,13 +47,21 @@ logger = logging.getLogger("image_analytics")
 # DETR consumes the single C5 map.
 _DEFAULT_OUT_INDICES = {
     "faster_rcnn": (1, 2, 3, 4),
+    "cascade_rcnn": (1, 2, 3, 4),
     "detr": (4,),
 }
 _FALLBACK_OUT_INDICES = (2, 3, 4)
 
+# Wrapper detectors own their backbone (HF) — no pyramid backbone is built.
+_WRAPPER_MODELS = {"deformable_detr", "rt_detr"}
+
 
 def build_detection_model(config: ModelConfig) -> nn.Module:
-    """Build a detector; the backbone is forced into pyramid mode."""
+    """Build a detector; the backbone is forced into pyramid mode (except
+    wrapper detectors, which own their encoder)."""
+    if config.name in _WRAPPER_MODELS:
+        return MODELS.build(config.name, num_classes=config.num_classes, **config.kwargs)
+
     backbone_cfg = config.backbone
     if not backbone_cfg.features_only:
         backbone_cfg = dataclasses.replace(backbone_cfg, features_only=True)
@@ -77,11 +87,11 @@ def build_dataloaders(
     data = config.data
     train_tf = build_detection_transforms(
         data.image_size, train=True, normalize=data.normalize,
-        mean=data.mean, std=data.std,
+        mean=data.mean, std=data.std, letterbox=data.letterbox,
     )
     val_tf = build_detection_transforms(
         data.image_size, train=False, normalize=data.normalize,
-        mean=data.mean, std=data.std,
+        mean=data.mean, std=data.std, letterbox=data.letterbox,
     )
     train_ds = build_dataset(data, split="train", transform=train_tf)
     val_ds = build_dataset(data, split="val", transform=val_tf)
@@ -155,6 +165,7 @@ def run(config: ExperimentConfig) -> dict[str, float]:
                 patience=tc.early_stopping_patience,
             )
         )
+    callbacks += maybe_mlflow_callback(config)
 
     trainer = DetectionTrainer(
         model,
