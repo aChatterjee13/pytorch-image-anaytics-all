@@ -2,11 +2,13 @@
 
 Modular PyTorch platform for image analytics: classification, object
 detection, segmentation, multispectral/satellite imagery, and 3D — built
-phase by phase per [EXPLORATION.md](EXPLORATION.md).
+phase by phase per [EXPLORATION.md](EXPLORATION.md) and
+[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
-**Status: Phase 1 (Foundation)** — core infrastructure, data pipeline,
-timm-backed backbones with multi-channel support, and end-to-end
-classification training.
+**Status: Phase 2 (Detection)** — Phase 1 (core infra, data pipeline,
+timm backbones, classification) plus four from-scratch detectors sharing one
+interface: RetinaNet, FCOS, Faster R-CNN, and DETR, with YOLO available via
+an ultralytics wrapper.
 
 ## Setup
 
@@ -20,6 +22,11 @@ uv pip install -e ".[dev,geo,notebooks]"   # geo = rasterio for multispectral
 ```bash
 # Fine-tune ResNet-18 on CIFAR-10 (downloads the dataset on first run)
 python scripts/train.py --config configs/classification/cifar10_resnet18.yaml
+
+# Detection on the offline synthetic-shapes dataset (CPU, minutes)
+python scripts/train.py --config configs/detection/faster_rcnn_shapes.yaml
+python scripts/train.py --config configs/detection/retinanet_shapes.yaml
+python scripts/train.py --config configs/detection/fcos_shapes.yaml
 
 # Override any config key from the CLI
 python scripts/train.py --config configs/classification/cifar10_resnet18.yaml \
@@ -54,7 +61,12 @@ python scripts/evaluate.py \
   overrides (`training.lr=1e-4`) are YAML-parsed.
 - **Task-agnostic Trainer** — DDP-aware loop with AMP, gradient clipping,
   checkpointing, and callbacks (logging / best-checkpoint / early stopping).
-  Detection and segmentation tasks will override `training_step`.
+  `DetectionTrainer` overrides only the step hooks (loss-dict training,
+  prediction-list evaluation); the loop is shared.
+- **One detection interface** — every detector (anchor-based, anchor-free,
+  two-stage, transformer) trains as `model(images, targets) -> loss dict` and
+  predicts as `model(images) -> [{boxes, scores, labels}]`; the COCO-protocol
+  mAP evaluator is parity-tested against pycocotools.
 - **Multi-channel first** — backbones accept `in_channels != 3` (pretrained
   stem weights adapted), optional per-band channel attention, and the
   multispectral dataset handles 16-bit GeoTIFFs with percentile/min-max/
@@ -68,6 +80,7 @@ python scripts/evaluate.py \
 
 ## Roadmap
 
-Phase 2 (detection: FPN, Faster R-CNN, RetinaNet, FCOS, DETR), Phase 3
-(segmentation), Phase 4 (satellite/foundation models), Phase 5 (3D),
-Phase 6 (serving/MLOps) — see [EXPLORATION.md](EXPLORATION.md#9-phased-build-roadmap).
+Phase 3 (segmentation: U-Net, DeepLabv3+, Mask R-CNN, SegFormer, SAM),
+Phase 4 (satellite/foundation models), Phase 5 (3D), Phase 6 (serving/MLOps)
+— design specs and acceptance criteria in
+[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).

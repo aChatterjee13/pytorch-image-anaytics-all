@@ -41,9 +41,11 @@ logger = logging.getLogger("image_analytics")
 
 # Per-detector pyramid levels (timm resnet-style feature_info indices):
 # one-stage detectors take C3-C5 (strides 8/16/32) and extend with P6/P7;
-# two-stage takes C2-C5 (strides 4/8/16/32) for fine RoI pooling.
+# two-stage takes C2-C5 (strides 4/8/16/32) for fine RoI pooling;
+# DETR consumes the single C5 map.
 _DEFAULT_OUT_INDICES = {
     "faster_rcnn": (1, 2, 3, 4),
+    "detr": (4,),
 }
 _FALLBACK_OUT_INDICES = (2, 3, 4)
 

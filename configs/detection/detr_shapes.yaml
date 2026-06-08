@@ -1,0 +1,55 @@
+# DETR on synthetic shapes — small transformer for CPU experimentation.
+#
+# Note: DETR is slow to converge by design (the original needed 500 epochs on
+# COCO). On shapes expect useful mAP after ~40-60 epochs, not 8. This config
+# exists for studying the architecture; for production transformer detection
+# wait for the Deformable-DETR / RT-DETR wrappers (see IMPLEMENTATION_PLAN.md).
+#
+# Run: python scripts/train.py --config configs/detection/detr_shapes.yaml
+
+task: detection
+experiment_name: detr_shapes
+seed: 42
+output_dir: outputs
+
+model:
+  name: detr
+  num_classes: 3
+  backbone:
+    name: resnet18
+    pretrained: true
+    features_only: true        # out_indices default to [4] (C5) for DETR
+  kwargs:
+    hidden_dim: 128
+    nhead: 4
+    num_encoder_layers: 3
+    num_decoder_layers: 3
+    dim_feedforward: 512
+    num_queries: 25
+    dropout: 0.0               # tiny dataset: dropout hurts more than helps
+    score_thresh: 0.5          # set prediction: confident queries only
+
+data:
+  dataset: synthetic_shapes
+  root: data
+  image_size: 96
+  batch_size: 8
+  num_workers: 0
+  normalize: imagenet
+  kwargs:
+    size: 512
+    image_size: 96
+    max_shapes: 3
+
+training:
+  epochs: 60
+  optimizer: adamw
+  lr: 1.0e-4
+  weight_decay: 0.0001
+  scheduler: cosine
+  warmup_epochs: 2
+  grad_clip: 0.1               # DETR standard: tight clipping
+  device: auto
+  log_interval: 20
+  monitor: val/mAP50
+  monitor_mode: max
