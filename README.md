@@ -111,11 +111,3 @@ TorchServe handler, and a pure-numpy `DriftMonitor` (PSI/KS/cosine-shift).
 ```bash
 .venv/bin/python -m pytest            # add -m "not slow" to skip overfit/training tests
 ```
-
-## Roadmap
-
-All six phases are implemented (design specs and acceptance criteria in
-[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)). What remains is hardware-bound:
-real-data GPU runs (CIFAR-10, COCO), verifying the CUDA-gated 3D wrappers
-(SECOND/CenterPoint/BEVFormer/Mask3D) on a GPU box, and the backlog items in
-[TODO.md](TODO.md).
