@@ -1,21 +1,7 @@
 # pytorch-image-analytics
 
 Modular PyTorch platform for image analytics: classification, object
-detection, segmentation, multispectral/satellite imagery, and 3D — built
-phase by phase per [EXPLORATION.md](EXPLORATION.md) and
-[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
-
-**Status: all phases (1–6) implemented.** Phase 1 (core infra, data pipeline,
-timm backbones, classification); Phase 2 detection (RetinaNet, FCOS, Faster
-R-CNN, Cascade R-CNN, DETR; PAFPN/letterbox; YOLO + Deformable-DETR / RT-DETR
-wrappers); Phase 3 segmentation (from-scratch **U-Net** / **DeepLabv3+**,
-**Mask R-CNN**, plus SegFormer / Mask2Former / OneFormer / SAM / smp wrappers);
-Phase 4 satellite (band-group stems, **SatMAE / Prithvi** backbones, TorchGeo,
-**Siamese change detection**, temporal pooling); Phase 5 3D (**PointNet /
-PointNet++ / DGCNN** and **PointPillars** on pure-PyTorch point ops, CUDA
-methods gated); Phase 6 serving (ONNX export + parity gate, unified inference
-CLI, TorchServe/Triton, embeddings, drift monitoring, CI). MLflow tracking is
-wired into every task.
+detection, segmentation, multispectral/satellite imagery, and 3D
 
 ## Setup
 
